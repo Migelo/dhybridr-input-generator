@@ -79,9 +79,9 @@ const SCHEMA = {
     fields: [
       { key: 'do_restart', label: 'do_restart', type: 'bool', dim: 0, default: false, hint: 'Restarting a previous simulation?' },
       { key: 'save_restart', label: 'save_restart', type: 'bool', dim: 0, default: true, hint: 'Save restart files?' },
-      { key: 'restart_step', label: 'restart_step', type: 'int', dim: 0, default: 2500, hint: 'Iterations between restart dumps' },
-      { key: 'restart_time', label: 'restart_time', type: 'int', dim: 0, default: -1, hint: 'Wall-time restart (seconds, -1=disabled)' },
-      { key: 'restart_time_step', label: 'restart_time_step', type: 'int', dim: 0, default: -1, hint: 'Check interval for time-based restart' },
+      { key: 'restart_step', label: 'restart_step', type: 'int', dim: 0, default: -1, hint: 'Iterations between restart dumps (-1=disabled)' },
+      { key: 'restart_time', label: 'restart_time', type: 'int', dim: 0, default: 7200, hint: 'Wall-time restart (seconds, -1=disabled)' },
+      { key: 'restart_time_step', label: 'restart_time_step', type: 'int', dim: 0, default: 100, hint: 'Check interval for time-based restart' },
     ]
   },
 

@@ -176,6 +176,10 @@
       if (SCHEMA[key]?.multiPerSpecies) {
         rebuildInjectorTabs(key);
       }
+      if (key === 'diag_species') {
+        const spIdx = activeSpeciesIdx[key] || 0;
+        validateDiagSpecies(key, spIdx);
+      }
     }
   }
 
@@ -425,6 +429,9 @@
     if (sec.multiPerSpecies) {
       validateInjector(skey, spIdx);
     }
+    if (skey === 'diag_species') {
+      validateDiagSpecies(skey, spIdx);
+    }
   }
 
   // ---- Injector tabs ----
@@ -543,6 +550,9 @@
             if (cb.checked) checked.push(cb.dataset.phase);
           });
           target[elKey] = checked.join(',');
+          if (elSection === 'diag_species' && spIdx !== undefined) {
+            validateDiagSpecies(elSection, spIdx);
+          }
           updatePreview();
           return;
         }
@@ -586,7 +596,22 @@
           validateInjector(elSection, spIdx);
         }
 
+        // Validate diag_species on change
+        if (elSection === 'diag_species' && spIdx !== undefined) {
+          validateDiagSpecies(elSection, spIdx);
+        }
+
         updatePreview();
+
+        // Cross-section: if ncells, niter, or ndump changed, update diag_species estimates
+        if ((elSection === 'grid_space' && elKey === 'ncells') ||
+            (elSection === 'time' && elKey === 'niter') ||
+            (elSection === 'global_output' && elKey === 'ndump')) {
+          const diagSpIdx = activeSpeciesIdx['diag_species'] || 0;
+          if (activeSection === 'diag_species') {
+            validateDiagSpecies('diag_species', diagSpIdx);
+          }
+        }
       };
 
       el.addEventListener('input', onChange);
@@ -722,6 +747,226 @@
         data[field.key] = filtered.join(',');
       }
     }
+  }
+
+  // ---- Diag Species validation, recommendations & size estimates ----
+  function validateDiagSpecies(skey, spIdx) {
+    if (skey !== 'diag_species') return;
+    const container = document.querySelector(`.species-content[data-section="${skey}"]`);
+    if (!container) return;
+    const data = state[skey]?.[spIdx];
+    if (!data) return;
+
+    const ncells = state.grid_space?.ncells || [];
+    const xres = data.xres || [];
+    const pres = data.pres || [512, 512, 512];
+    const dimLabels = ['x', 'y', 'z'];
+
+    // --- xres validation against ncells ---
+    let warnContainer = container.querySelector('.xres-validation-msg');
+    if (!warnContainer) {
+      // Find the xres field row and append after its field-input
+      const xresInput = container.querySelector('[data-key="xres"]');
+      if (xresInput) {
+        const fieldInput = xresInput.closest('.field-input');
+        if (fieldInput) {
+          warnContainer = document.createElement('div');
+          warnContainer.className = 'xres-validation-msg';
+          fieldInput.appendChild(warnContainer);
+        }
+      }
+    }
+    if (warnContainer) {
+      const warnings = [];
+      for (let i = 0; i < currentDim; i++) {
+        const xr = Number(xres[i]) || 0;
+        const nc = Number(ncells[i]) || 0;
+        if (nc > 0 && xr > nc) {
+          warnings.push(`xres[${dimLabels[i]}]=${xr} exceeds ncells[${dimLabels[i]}]=${nc} — output will be capped at ncells`);
+        }
+      }
+      warnContainer.innerHTML = warnings.map(w => `<div class="validation-warn">\u26a0 ${w}</div>`).join('');
+    }
+
+    // --- Recommended xres pill buttons ---
+    let recContainer = container.querySelector('.xres-recommendations');
+    if (!recContainer) {
+      const xresInput = container.querySelector('[data-key="xres"]');
+      if (xresInput) {
+        const fieldInput = xresInput.closest('.field-input');
+        if (fieldInput) {
+          recContainer = document.createElement('div');
+          recContainer.className = 'xres-recommendations';
+          fieldInput.appendChild(recContainer);
+        }
+      }
+    }
+    if (recContainer) {
+      let recHTML = '';
+      const fracs = [
+        { label: 'full', div: 1 },
+        { label: '\u00bd', div: 2 },
+        { label: '\u00bc', div: 4 },
+        { label: '\u215b', div: 8 },
+      ];
+      for (let i = 0; i < currentDim; i++) {
+        const nc = Number(ncells[i]) || 128;
+        recHTML += `<div class="xres-rec-row">`;
+        recHTML += `<span class="rec-label">${dimLabels[i]}:</span>`;
+        for (const fr of fracs) {
+          const val = Math.max(1, Math.floor(nc / fr.div));
+          recHTML += `<button type="button" class="xres-rec-pill" data-dim="${i}" data-val="${val}">`;
+          recHTML += `${val}<span class="pill-frac">${fr.label}</span></button>`;
+        }
+        recHTML += `</div>`;
+      }
+      recContainer.innerHTML = recHTML;
+      // Bind pill clicks
+      recContainer.querySelectorAll('.xres-rec-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const dimIdx = parseInt(btn.dataset.dim);
+          const val = parseInt(btn.dataset.val);
+          // Update state
+          if (!Array.isArray(data.xres)) data.xres = [256, 256, 256];
+          data.xres[dimIdx] = val;
+          // Update the corresponding input
+          const inp = container.querySelector(`[data-key="xres"][data-index="${dimIdx}"]`);
+          if (inp) inp.value = val;
+          // Re-validate and re-estimate
+          validateDiagSpecies(skey, spIdx);
+          updatePreview();
+        });
+      });
+    }
+
+    // --- File size estimate panel ---
+    buildDiagSizePanel(container, data, spIdx);
+  }
+
+  function buildDiagSizePanel(container, data, spIdx) {
+    const ncells = state.grid_space?.ncells || [];
+    const xres = data.xres || [];
+    const pres = data.pres || [512, 512, 512];
+    const niter = Number(state.time?.niter) || 2000;
+    const ndump = Number(state.global_output?.ndump) || 100;
+    const numDumps = ndump > 0 ? Math.floor(niter / ndump) : 0;
+
+    // Parse selected phase spaces
+    const psStr = data.phasespaces || '';
+    const selectedPS = psStr.split(',').map(s => s.trim()).filter(s => s);
+
+    let panel = container.querySelector('.diag-size-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'diag-size-panel';
+      container.appendChild(panel);
+    }
+
+    if (selectedPS.length === 0) {
+      panel.innerHTML = `<div class="size-panel-header"><span class="size-icon">\ud83d\udcca</span> Estimated Output Size per Dump</div>`
+        + `<div class="size-empty">No phase spaces selected</div>`;
+      return;
+    }
+
+    // Calculate size for each selected phase space
+    const BYTES_PER_CELL = 4;
+    let totalBytes = 0;
+    const rows = [];
+
+    for (const ps of selectedPS) {
+      const { cells, dimsStr } = calcPhaseSpaceSize(ps, xres, pres, ncells);
+      const bytes = cells * BYTES_PER_CELL;
+      totalBytes += bytes;
+      rows.push({ name: ps, dims: dimsStr, bytes });
+    }
+
+    let html = `<div class="size-panel-header"><span class="size-icon">\ud83d\udcca</span> Estimated Output Size per Dump</div>`;
+    for (const row of rows) {
+      html += `<div class="size-row">`;
+      html += `<span><span class="size-name">${row.name}</span><span class="size-dims">${row.dims}</span></span>`;
+      html += `<span class="size-value">${formatBytes(row.bytes)}</span>`;
+      html += `</div>`;
+    }
+    html += `<div class="size-total">`;
+    html += `<span>Total per dump (${selectedPS.length} phase spaces)</span>`;
+    html += `<span class="size-value">${formatBytes(totalBytes)}</span>`;
+    html += `</div>`;
+    if (numDumps > 0) {
+      const simTotal = totalBytes * numDumps;
+      html += `<div class="size-total size-sim">`;
+      html += `<span>Total per simulation (${numDumps} dumps \u00d7 niter=${niter}, ndump=${ndump})</span>`;
+      html += `<span class="size-value">${formatBytes(simTotal)}</span>`;
+      html += `</div>`;
+    }
+    panel.innerHTML = html;
+  }
+
+  function calcPhaseSpaceSize(psName, xres, pres, ncells) {
+    // x3x2x1 is the special charge density case: always full grid
+    if (psName === 'x3x2x1') {
+      const dims = [];
+      for (let i = 0; i < currentDim; i++) dims.push(Number(ncells[i]) || 128);
+      const cells = dims.reduce((a, b) => a * b, 1);
+      return { cells, dimsStr: dims.join(' \u00d7 ') };
+    }
+
+    // Parse the name: axes right-to-left
+    // e.g. 'p3x2' → axis1=x2, axis2=p3
+    // e.g. 'p1x1' → axis1=x1, axis2=p1
+    // Name parts: match 2-char tokens like x1, x2, x3, p1, p2, p3, pt, et
+    const tokens = [];
+    const regex = /(x[123]|p[123]|pt|et)/g;
+    let m;
+    while ((m = regex.exec(psName)) !== null) tokens.push(m[1]);
+
+    // The name reads right-to-left for axes, so first token in left-to-right = axis2, last = axis1
+    // But for size calculation, order doesn't matter—just multiply the resolutions.
+    if (tokens.length < 2) return { cells: 0, dimsStr: '?' };
+
+    const sizes = [];
+    const labels = [];
+    for (const tok of tokens) {
+      const { size, label } = resolveAxisSize(tok, xres, pres, ncells);
+      sizes.push(size);
+      labels.push(label);
+    }
+
+    const cells = sizes.reduce((a, b) => a * b, 1);
+    // Show in axis order (reversed from name reading): labels are already left-to-right from name
+    const dimsStr = labels.map((l, i) => `${sizes[i]}`).join(' \u00d7 ');
+    return { cells, dimsStr };
+  }
+
+  function resolveAxisSize(tok, xres, pres, ncells) {
+    if (tok === 'x1') {
+      const v = Math.min(Number(xres[0]) || 256, Number(ncells[0]) || 128);
+      return { size: v, label: 'x1' };
+    }
+    if (tok === 'x2') {
+      const v = Math.min(Number(xres[1]) || 256, Number(ncells[1]) || 128);
+      return { size: v, label: 'x2' };
+    }
+    if (tok === 'x3') {
+      const v = Math.min(Number(xres[2]) || 256, Number(ncells[2]) || 128);
+      return { size: v, label: 'x3' };
+    }
+    if (tok === 'p1') return { size: Number(pres[0]) || 512, label: 'p1' };
+    if (tok === 'p2') return { size: Number(pres[1]) || 512, label: 'p2' };
+    if (tok === 'p3') return { size: Number(pres[2]) || 512, label: 'p3' };
+    if (tok === 'pt') {
+      const avg = Math.round(((Number(pres[0]) || 512) + (Number(pres[1]) || 512) + (Number(pres[2]) || 512)) / 3);
+      return { size: avg, label: 'pt' };
+    }
+    if (tok === 'et') return { size: 256, label: 'et' };
+    return { size: 0, label: tok };
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   }
 
   // ---- Injector validation ----

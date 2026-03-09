@@ -660,6 +660,7 @@
   function validateInjector(skey, spIdx) {
     const msgEl = document.querySelector(`.validation-msg[data-section="${skey}"]`);
     if (!msgEl) return;
+    const container = document.querySelector(`.species-content[data-section="${skey}"]`);
     const injIdx = activeInjectorIdx[spIdx] || 0;
     const data = state[skey]?.[spIdx]?.[injIdx];
     if (!data) { msgEl.innerHTML = ''; return; }
@@ -689,11 +690,43 @@
       if (currentDim >= 2) bdAxes.push({ label: 'y', max: Number(boxsize[1]) || 0, stIdx: 1, endIdx: nInPlane + 1 });
     }
 
+    // Update planepos hint to show axis and range
+    const ppHint = container?.querySelector(`[data-key="planepos"]`);
+    if (ppHint) {
+      const hintEl = ppHint.closest('.field-row')?.querySelector('.hint');
+      if (hintEl) {
+        hintEl.textContent = planeMax > 0
+          ? `Position along ${planeAxis} axis (0 … ${planeMax})`
+          : `Position along ${planeAxis} axis`;
+      }
+    }
+
     // Validate planepos
     const pp = Number(data.planepos) || 0;
     if (planeMax > 0) {
       if (pp < 0) warnings.push(`planepos (${pp}) is below 0 — will be clipped to 0`);
       if (pp > planeMax) warnings.push(`planepos (${pp}) exceeds boxsize(${planeAxis})=${planeMax} — will be clipped`);
+    }
+
+    // Update boundary array labels and hint to show axis names based on selected plane
+    if (container) {
+      const bdInput = container.querySelector('[data-key="boundary"]');
+      if (bdInput) {
+        const fieldRow = bdInput.closest('.field-row');
+        const arrayDiv = bdInput.closest('.array-col')?.parentElement;
+        if (arrayDiv) {
+          const axLabels = bdAxes.map(a => a.label);
+          const labelArr = [...axLabels.map(l => `${l}-start`), ...axLabels.map(l => `${l}-end`)];
+          const labelEls = arrayDiv.querySelectorAll('.array-col .label');
+          labelEls.forEach((el, i) => { if (labelArr[i]) el.textContent = labelArr[i]; });
+        }
+        // Update boundary hint with in-plane axis info
+        const bdHint = fieldRow?.querySelector('.hint');
+        if (bdHint) {
+          const axDesc = bdAxes.map(a => a.max > 0 ? `${a.label}: 0…${a.max}` : a.label).join(', ');
+          bdHint.textContent = `In-plane bounds (${axDesc})`;
+        }
+      }
     }
 
     // Validate boundary

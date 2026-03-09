@@ -2,10 +2,10 @@
 
 Source: `specdiag.f90`, line 69. Total: 22 phase spaces (`PHNUMBER = 22`).
 
-## Full 3D Position Space
+## Charge Density (spatial histogram)
 | Name     | Description                    | Min DIM | Notes |
 |----------|--------------------------------|---------|-------|
-| x3x2x1  | Full 3D charge density         | 0 (always) | Handled by OutputSpecies3D; always available |
+| x3x2x1  | Charge density on grid (1D/2D/3D depending on DIM) | 0 (always) | Deposits particle positions onto the simulation grid via OutputSpecies3D; dimensionality matches DIM, not always 3D despite the name |
 
 ## 2D Position-Position
 | Name | Description      | Min DIM |

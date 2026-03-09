@@ -294,7 +294,7 @@ const SCHEMA = {
         'x3x2x1,x2x1,p2p1,p3p1,p3p2,p1x1,p2x2,p1x2,p2x1,p3x1,p3x2,ptx1,ptx2,etx1,etx2',
         hint: 'Phase space diagnostics', phaseCheckboxes: true,
         phaseOptions: [
-          { name: 'x3x2x1', minDim: 0, group: '3D Position' },
+          { name: 'x3x2x1', minDim: 0, group: 'Charge Density' },
           { name: 'x2x1',   minDim: 2, group: 'Position-Position' },
           { name: 'x3x1',   minDim: 3, group: 'Position-Position' },
           { name: 'x3x2',   minDim: 3, group: 'Position-Position' },

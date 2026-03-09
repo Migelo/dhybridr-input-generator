@@ -364,6 +364,7 @@ const PRESETS = [
       ext_emf: { Bx: '0.6', By: '0.33', Bz: '-.25' },
       species: [{ num_par: [2,2], vth: 1 }],
       boundary_conditions: [{ bdtype: ['per','per','per','per'] }],
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
   {
@@ -377,6 +378,7 @@ const PRESETS = [
       ext_emf: { Bx: '0.6', By: '0.33', Bz: '-.25' },
       species: [{ num_par: [2,2,2], vth: 1 }],
       boundary_conditions: [{ bdtype: ['per','per','per','per','per','per'] }],
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
   {
@@ -392,6 +394,7 @@ const PRESETS = [
       algorithm: { filternpass: 1, ifsmoothextfields: true },
       species: [{ vdrift: [-220,0,0], vth: 1, num_par: [2,2] }],
       boundary_conditions: [{ bdtype: ['reflect','open','per','per'], vth: 0 }],
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
   {
@@ -407,6 +410,7 @@ const PRESETS = [
       algorithm: { filternpass: 1, ifsmoothextfields: true },
       species: [{ vdrift: [-220,0,0], vth: 1, num_par: [2,2] }],
       boundary_conditions: [{ bdtype: ['reflect','open','per','per'], vth: 0 }],
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
 ];

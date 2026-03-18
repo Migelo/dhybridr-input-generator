@@ -419,4 +419,21 @@ const PRESETS = [
       restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
+  {
+    name: '3D Shock',
+    desc: 'Parallel shock with conducting/open boundaries',
+    dim: 3,
+    values: {
+      node_conf: { node_number: [1,1,1] },
+      time: { dt: 0.0009623, niter: 1024, c: 100 },
+      grid_space: { ncells: [64,64,64], boxsize: [32,32,32], bdtype: ['reflect','open','per','per','per','per'] },
+      global_output: { ndump: 256, output_folder: 'Output' },
+      ext_emf: { Bx: '1.', By: '0.', Bz: '0.' },
+      algorithm: { filternpass: 1, ifsmoothextfields: true },
+      species: [{ vdrift: [-220,0,0], vth: 1, num_par: [2,2,2] }],
+      boundary_conditions: [{ bdtype: ['reflect','open','per','per','per','per'], vth: 0 }],
+      plasma_injector: [[{ plane: 'yz', planepos: 32, boundary: [0,0,32,32], vdrift: [-30,0,0], vth: 1, num_par: [2,2,2] }]],
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
+    }
+  },
 ];

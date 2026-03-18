@@ -1168,7 +1168,9 @@
     // x3x2x1 is the special charge density case: always full grid
     if (psName === 'x3x2x1') {
       const dims = [];
-      for (let i = 0; i < currentDim; i++) dims.push(Number(ncells[i]) || 128);
+      for (let i = 0; i < currentDim; i++) {
+        dims.push(Math.min(Number(xres[i]) || 256, Number(ncells[i]) || 128));
+      }
       const cells = dims.reduce((a, b) => a * b, 1);
       return { cells, dimsStr: dims.join(' \u00d7 ') };
     }

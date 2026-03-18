@@ -484,6 +484,19 @@
         const newInj = buildDefaults(SCHEMA[skey]);
         // Inherit _enabled from existing injectors
         if (injectors.length > 0 && injectors[0]._enabled) newInj._enabled = true;
+        // Snap to right x edge with full boundary span, inherit species vth
+        if (skey === 'plasma_injector') {
+          const boxsize = (state.grid_space?.boxsize || []).map(Number);
+          newInj.plane = 'yz';
+          newInj.planepos = boxsize[0] || 0;
+          const nInPlane = currentDim - 1;
+          const bd = new Array(nInPlane * 2).fill(0);
+          if (nInPlane >= 1) bd[nInPlane] = boxsize[1] || 0;
+          if (nInPlane >= 2) bd[nInPlane + 1] = boxsize[2] || 0;
+          newInj.boundary = bd;
+          const spData = state.species?.[spIdx];
+          if (spData) newInj.vth = spData.vth ?? newInj.vth;
+        }
         injectors.push(newInj);
         activeInjectorIdx[spIdx] = injectors.length - 1;
         rebuildInjectorTabs(skey);

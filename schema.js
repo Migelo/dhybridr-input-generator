@@ -380,7 +380,7 @@ const PRESETS = [
     dim: 2,
     values: {
       node_conf: { node_number: [1,1] },
-      time: { dt: 0.0025, niter: 2000, c: 100 },
+      time: { dt: 0.001768, niter: 2000, c: 100 },
       grid_space: { ncells: [20,20], boxsize: [10,10], bdtype: ['per','per','per','per'] },
       ext_emf: { Bx: '0.6', By: '0.33', Bz: '-.25' },
       species: [{ num_par: [2,2], vth: 1 }],
@@ -394,7 +394,7 @@ const PRESETS = [
     dim: 3,
     values: {
       node_conf: { node_number: [1,1,1] },
-      time: { dt: 0.0025, niter: 2000, c: 100 },
+      time: { dt: 0.001443, niter: 2000, c: 100 },
       grid_space: { ncells: [20,20,20], boxsize: [10,10,10], bdtype: ['per','per','per','per','per','per'] },
       ext_emf: { Bx: '0.6', By: '0.33', Bz: '-.25' },
       species: [{ num_par: [2,2,2], vth: 1 }],
@@ -408,7 +408,7 @@ const PRESETS = [
     dim: 2,
     values: {
       node_conf: { node_number: [1,1] },
-      time: { dt: 0.0025, niter: 1024, c: 100 },
+      time: { dt: 0.001768, niter: 1024, c: 100 },
       grid_space: { ncells: [128,128], boxsize: [64,64], bdtype: ['reflect','open','per','per'] },
       global_output: { ndump: 256, output_folder: 'Output' },
       ext_emf: { Bx: '1.', By: '0.', Bz: '0.' },

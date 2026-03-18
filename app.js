@@ -883,23 +883,23 @@
     }
   }
 
-  // ---- Auto-update dt using CFL: dt = 0.5 * min(dx_i) / c ----
+  // ---- Auto-update dt using CFL: dt = 0.5 / (c * sqrt(sum(1/dx_i^2))) ----
   function autoUpdateDt() {
     const ncells = state.grid_space?.ncells || [];
     const boxsize = state.grid_space?.boxsize || [];
     const c = parseFloat(state.time?.c) || 100;
     if (c <= 0) return;
 
-    let minDx = Infinity;
+    let sumInvDx2 = 0;
     for (let i = 0; i < currentDim; i++) {
       const L = parseFloat(boxsize[i]) || 1;
       const N = parseInt(ncells[i]) || 1;
       const dx = L / N;
-      if (dx < minDx) minDx = dx;
+      sumInvDx2 += 1 / (dx * dx);
     }
-    if (!isFinite(minDx) || minDx <= 0) return;
+    if (sumInvDx2 <= 0) return;
 
-    const dt = 0.5 * minDx / c;
+    const dt = 0.5 / (c * Math.sqrt(sumInvDx2));
     const dtStr = dt.toPrecision(4);
     state.time.dt = parseFloat(dtStr);
 
@@ -921,17 +921,19 @@
     const c = parseFloat(state.time?.c) || 100;
     if (c <= 0) { container.innerHTML = ''; return; }
 
+    let sumInvDx2 = 0;
+    const dxVals = [];
     const dimNames = ['x', 'y', 'z'];
-    let minDx = Infinity;
     for (let i = 0; i < currentDim; i++) {
       const L = parseFloat(boxsize[i]) || 1;
       const N = parseInt(ncells[i]) || 1;
       const dx = L / N;
-      if (dx < minDx) minDx = dx;
+      dxVals.push(dx);
+      sumInvDx2 += 1 / (dx * dx);
     }
-    if (!isFinite(minDx) || minDx <= 0) { container.innerHTML = ''; return; }
+    if (sumInvDx2 <= 0) { container.innerHTML = ''; return; }
 
-    const dtRec = safetyFactor * minDx / c;
+    const dtRec = safetyFactor / (c * Math.sqrt(sumInvDx2));
     const dtStr = dtRec.toPrecision(4);
 
     // Build the formula display
@@ -943,15 +945,23 @@
     html += `</div>`;
     container.innerHTML = html;
 
-    // Build LaTeX
+    // Build dimension-appropriate LaTeX
     const texEl = document.getElementById('dt-formula-tex');
-    const dxTerms = dimNames.slice(0, currentDim).map(d => `\\Delta ${d}`).join(',\\,');
-    const texFormula = String.raw`\Delta t \leq \frac{C_{\max} \cdot \min(${dxTerms})}{c} \quad (C_{\max} = ${safetyFactor})`;
+    let invTerms;
+    if (currentDim === 1) {
+      invTerms = String.raw`\frac{1}{\Delta x^2}`;
+    } else if (currentDim === 2) {
+      invTerms = String.raw`\frac{1}{\Delta x^2} + \frac{1}{\Delta y^2}`;
+    } else {
+      invTerms = String.raw`\frac{1}{\Delta x^2} + \frac{1}{\Delta y^2} + \frac{1}{\Delta z^2}`;
+    }
+    const texFormula = String.raw`\Delta t \leq \frac{C_{\max}}{c\,\sqrt{${invTerms}}} \quad (C_{\max} = ${safetyFactor})`;
 
     if (texEl && typeof katex !== 'undefined') {
       katex.render(texFormula, texEl, { throwOnError: false, displayMode: false });
     } else if (texEl) {
-      texEl.textContent = `dt ≤ Cmax · min(${dimNames.slice(0, currentDim).map(d => 'd'+d).join(', ')}) / c  (Cmax = ${safetyFactor})`;
+      const terms = dxVals.map((_, i) => `1/d${dimNames[i]}²`).join(' + ');
+      texEl.textContent = `dt ≤ Cmax / (c · √(${terms}))  (Cmax = ${safetyFactor})`;
     }
 
   }

@@ -16,6 +16,7 @@
 
     // Render dt formula once KaTeX is ready
     autoUpdateDt();
+    autoCapXres();
     if (typeof katex !== 'undefined') {
       updateDtRecommendation();
     } else {

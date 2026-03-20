@@ -1197,9 +1197,13 @@
     // Replace ^ with ** (some Fortran parsers use ^)
     s = s.replace(/\^/g, '**');
     // Replace math functions with Math. equivalents
-    // htan is a dHybridR alias for tanh — replace before general fn mapping
+    // dHybridR fparser aliases — replace before general fn mapping
     s = s.replace(/\bhtan\b/gi, 'tanh');
-    const fns = ['cos','sin','sqrt','exp','log','abs','tan','atan','acos','asin','atan2','sinh','cosh','tanh'];
+    s = s.replace(/\btenlog\b/gi, 'log10');
+    // sech(expr) → 1/Math.cosh(expr) — not a standard Math fn, compute inline
+    s = s.replace(/\bsech\(/gi, '1/Math.cosh(');
+    // dHybridR fparser supported functions → Math.*
+    const fns = ['cos','sin','sqrt','exp','log','abs','tan','atan','acos','asin','atan2','tanh','log10'];
     for (const fn of fns) {
       s = s.replace(new RegExp('\\b' + fn + '\\b', 'gi'), 'Math.' + fn);
     }

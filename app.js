@@ -200,6 +200,9 @@
     if (key === 'species') {
       debouncedRenderNspPlot();
     }
+    if (key === 'raw_diag') {
+      debouncedRenderSelectrulePlot();
+    }
     validateSection(key);
   }
 
@@ -225,6 +228,7 @@
             renderBFieldPlot();
             renderEFieldPlot();
             debouncedRenderNspPlot();
+            debouncedRenderSelectrulePlot();
           });
         }
         const compSel = div.querySelector('#b-field-component');
@@ -356,6 +360,22 @@
         html += `</span>`;
         html += `</div>`;
         html += `<canvas id="nsp-canvas"></canvas><div id="nsp-plot-msg"></div></div>`;
+      }
+      // Insert selectrule spatial plot after raw_diag fields
+      if (skey === 'raw_diag') {
+        html += `<div id="selectrule-plot">`;
+        html += `<div id="selectrule-controls">`;
+        html += `<span class="plot-3d-controls">`;
+        html += `<label>Slice: <select id="selectrule-slice-axis">`;
+        html += `<option value="2" selected>z</option>`;
+        html += `<option value="1">y</option>`;
+        html += `<option value="0">x</option>`;
+        html += `</select></label>`;
+        html += `<input type="range" id="selectrule-slice-pos" min="0" max="1" step="0.005" value="0.5">`;
+        html += `<span id="selectrule-slice-val"></span>`;
+        html += `</span>`;
+        html += `</div>`;
+        html += `<canvas id="selectrule-canvas"></canvas><div id="selectrule-plot-msg"></div></div>`;
       }
       // Insert |B| magnitude panel and heatmap after the Magnetic Field group
       if (skey === 'ext_emf' && group.title === 'Magnetic Field') {
@@ -591,6 +611,26 @@
     }
     if (skey === 'diag_species') {
       validateDiagSpecies(skey, spIdx);
+    }
+    if (skey === 'raw_diag') {
+      // Bind selectrule 3D slice controls
+      const srSliceAxisSel = container.querySelector('#selectrule-slice-axis');
+      if (srSliceAxisSel) {
+        srSliceAxisSel.value = String(selectruleSliceAxis);
+        srSliceAxisSel.addEventListener('change', () => {
+          selectruleSliceAxis = parseInt(srSliceAxisSel.value);
+          renderSelectrulePlot();
+        });
+      }
+      const srSlicePosRange = container.querySelector('#selectrule-slice-pos');
+      if (srSlicePosRange) {
+        srSlicePosRange.value = String(selectruleSlicePos);
+        srSlicePosRange.addEventListener('input', () => {
+          selectruleSlicePos = parseFloat(srSlicePosRange.value);
+          renderSelectrulePlot();
+        });
+      }
+      debouncedRenderSelectrulePlot();
     }
     if (skey === 'species') {
       // Bind nsp 3D slice controls
@@ -844,6 +884,7 @@
           debouncedRenderBFieldPlot();
           debouncedRenderEFieldPlot();
           debouncedRenderNspPlot();
+          debouncedRenderSelectrulePlot();
         }
 
         // Cross-section: if ext_emf fields changed, update |B| and |E| magnitude and plots
@@ -857,6 +898,11 @@
         // Species: if nsp, nsp_domain, domain_boundary, or ct changed, update density plot
         if (elSection === 'species' && (elKey === 'nsp' || elKey === 'nsp_domain' || elKey === 'domain_boundary' || elKey === 'ct')) {
           debouncedRenderNspPlot();
+        }
+
+        // Raw diag: if selectrule or ct changed, update selectrule plot
+        if (elSection === 'raw_diag' && (elKey === 'selectrule' || elKey === 'ct')) {
+          debouncedRenderSelectrulePlot();
         }
 
         // Section validations
@@ -2412,6 +2458,312 @@
   function debouncedRenderNspPlot() {
     if (_nspPlotTimer) clearTimeout(_nspPlotTimer);
     _nspPlotTimer = setTimeout(renderNspPlot, 100);
+  }
+
+  // ---- Selectrule spatial plot ----
+  let selectruleSliceAxis = 2;
+  let selectruleSlicePos = 0.5;
+  let _selectrulePlotTimer = null;
+
+  function renderSelectrulePlot() {
+    const container = document.getElementById('selectrule-plot');
+    if (!container) return;
+    const canvas = document.getElementById('selectrule-canvas');
+    const msgEl = document.getElementById('selectrule-plot-msg');
+    if (!canvas || !msgEl) return;
+
+    const spIdx = activeSpeciesIdx['raw_diag'] || 0;
+    const rawData = state.raw_diag?.[spIdx];
+    if (!rawData) return;
+
+    const selectruleStr = (rawData.selectrule || '1.').trim();
+
+    // Default: all particles selected
+    if (selectruleStr === '1.' || selectruleStr === '1' || selectruleStr === '1.0') {
+      canvas.width = 0;
+      canvas.height = 0;
+      msgEl.textContent = 'Default: all particles selected';
+      msgEl.style.display = '';
+      const c3d = container.querySelector('.plot-3d-controls');
+      if (c3d) c3d.style.display = 'none';
+      return;
+    }
+
+    const ctVals = rawData.ct || [];
+    const expr = translateExpr(selectruleStr, ctVals);
+
+    const boxsize = state.grid_space?.boxsize || [];
+    const Lx = parseFloat(boxsize[0]) || 1;
+    const Ly = parseFloat(boxsize[1]) || 1;
+    const Lz = parseFloat(boxsize[2]) || 1;
+    const axisNames = ['x', 'y', 'z'];
+
+    if (currentDim === 1) {
+      // --- 1D line plot ---
+      container.style.display = '';
+      const c3d = container.querySelector('.plot-3d-controls');
+      if (c3d) c3d.style.display = 'none';
+
+      const NX = 200;
+      const plotW = 300, plotH = 200;
+      const marginLeft = 50, marginTop = 10, marginBottom = 30, marginRight = 10;
+      const canvasW = marginLeft + plotW + marginRight;
+      const canvasH = marginTop + plotH + marginBottom;
+
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      canvas.style.width = canvasW + 'px';
+      canvas.style.height = canvasH + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvasW, canvasH);
+
+      try {
+        const evalExpr = new Function('x1', 'x2', 'x3', 'vx', 'vy', 'vz', 'return (' + expr + ');');
+        const data = new Float64Array(NX);
+        for (let ix = 0; ix < NX; ix++) {
+          const x = Lx * (ix + 0.5) / NX;
+          const val = evalExpr(x, 0, 0, 0, 0, 0);
+          data[ix] = val > 0 ? 1 : 0;
+        }
+
+        msgEl.textContent = '';
+        msgEl.style.display = 'none';
+
+        const vmin = 0, vmax = 1;
+
+        // Grid lines
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+          const gx = marginLeft + (plotW * i / 4);
+          ctx.beginPath(); ctx.moveTo(gx, marginTop); ctx.lineTo(gx, marginTop + plotH); ctx.stroke();
+          const gy = marginTop + (plotH * i / 4);
+          ctx.beginPath(); ctx.moveTo(marginLeft, gy); ctx.lineTo(marginLeft + plotW, gy); ctx.stroke();
+        }
+
+        // Axes border
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(marginLeft, marginTop, plotW, plotH);
+
+        // Draw line segments
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 2;
+        let inSegment = false;
+        for (let ix = 0; ix < NX; ix++) {
+          const px = marginLeft + (ix + 0.5) / NX * plotW;
+          const py = marginTop + plotH - data[ix] * plotH;
+          if (!inSegment) { ctx.beginPath(); ctx.moveTo(px, py); inSegment = true; }
+          else { ctx.lineTo(px, py); }
+        }
+        if (inSegment) ctx.stroke();
+
+        // X-axis labels
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('x', marginLeft + plotW / 2, canvasH - 2);
+        ctx.textAlign = 'left';
+        ctx.fillText('0', marginLeft, canvasH - 16);
+        ctx.textAlign = 'right';
+        ctx.fillText(Lx % 1 === 0 ? String(Lx) : Lx.toFixed(1), marginLeft + plotW, canvasH - 16);
+
+        // Y-axis labels
+        ctx.save();
+        ctx.translate(10, marginTop + plotH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.fillText('select', 0, 0);
+        ctx.restore();
+        ctx.textAlign = 'right';
+        ctx.fillText('0', marginLeft - 4, marginTop + plotH);
+        ctx.fillText('1', marginLeft - 4, marginTop + 10);
+
+      } catch (e) {
+        ctx.clearRect(0, 0, canvasW, canvasH);
+        canvas.width = 0;
+        canvas.height = 0;
+        msgEl.textContent = 'Cannot evaluate selectrule expression';
+        msgEl.style.display = '';
+      }
+      return;
+    }
+
+    // 2D and 3D modes
+    if (currentDim < 2) {
+      container.style.display = 'none';
+      return;
+    }
+    container.style.display = '';
+
+    // Show/hide 3D controls and ensure slider is bound
+    const srControls3d = container.querySelector('.plot-3d-controls');
+    if (srControls3d) srControls3d.style.display = currentDim === 3 ? '' : 'none';
+    const srSlider = document.getElementById('selectrule-slice-pos');
+    if (srSlider && !srSlider._bound) {
+      srSlider._bound = true;
+      srSlider.addEventListener('input', () => {
+        selectruleSlicePos = parseFloat(srSlider.value);
+        renderSelectrulePlot();
+      });
+    }
+    const srAxisSel = document.getElementById('selectrule-slice-axis');
+    if (srAxisSel && !srAxisSel._bound) {
+      srAxisSel._bound = true;
+      srAxisSel.addEventListener('change', () => {
+        selectruleSliceAxis = parseInt(srAxisSel.value);
+        renderSelectrulePlot();
+      });
+    }
+
+    const fullL = [Lx, Ly, Lz];
+    let hAxisLabel, vAxisLabel, La, Lb;
+    let buildCoords;
+
+    if (currentDim === 3) {
+      const sa = selectruleSliceAxis;
+      const freeAxes = [0, 1, 2].filter(i => i !== sa);
+      La = fullL[freeAxes[0]]; Lb = fullL[freeAxes[1]];
+      const fixedCoord = selectruleSlicePos * fullL[sa];
+      hAxisLabel = axisNames[freeAxes[0]];
+      vAxisLabel = axisNames[freeAxes[1]];
+      buildCoords = (a, b) => {
+        const c = [0, 0, 0];
+        c[freeAxes[0]] = a; c[freeAxes[1]] = b; c[sa] = fixedCoord;
+        return c;
+      };
+      const sliceValEl = document.getElementById('selectrule-slice-val');
+      if (sliceValEl) sliceValEl.textContent = axisNames[sa] + ' = ' + fixedCoord.toFixed(1);
+    } else {
+      La = Lx; Lb = Ly;
+      hAxisLabel = 'x'; vAxisLabel = 'y';
+      buildCoords = (a, b) => [a, b, 0];
+    }
+
+    const NX = 200, NY = 200;
+    const plotW = 300, plotH = Math.round(plotW * (Lb / La));
+    const barW = 16, barGap = 8, labelW = 50;
+    const marginLeft = 40, marginTop = 10, marginBottom = 30, marginRight = barGap + barW + labelW;
+    const canvasW = marginLeft + plotW + marginRight;
+    const canvasH = marginTop + plotH + marginBottom;
+
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    canvas.style.width = canvasW + 'px';
+    canvas.style.height = canvasH + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvasW, canvasH);
+
+    try {
+      const evalExpr = new Function('x1', 'x2', 'x3', 'vx', 'vy', 'vz', 'return (' + expr + ');');
+      const vals = new Uint8Array(NX * NY);
+      for (let ib = 0; ib < NY; ib++) {
+        const b = Lb * (ib + 0.5) / NY;
+        for (let ia = 0; ia < NX; ia++) {
+          const a = La * (ia + 0.5) / NX;
+          const [cx, cy, cz] = buildCoords(a, b);
+          const val = evalExpr(cx, cy, cz, 0, 0, 0);
+          vals[ib * NX + ia] = val > 0 ? 1 : 0;
+        }
+      }
+
+      msgEl.textContent = '';
+      msgEl.style.display = 'none';
+
+      const colorMap = COLORMAPS[selectedColormap] || COLORMAPS.viridis;
+
+      const imgData = ctx.createImageData(NX, NY);
+      for (let iy = 0; iy < NY; iy++) {
+        for (let ix = 0; ix < NX; ix++) {
+          const srcIdx = (NY - 1 - iy) * NX + ix;
+          const pxIdx = (iy * NX + ix) * 4;
+          if (!vals[srcIdx]) {
+            // Dark background where not selected
+            imgData.data[pxIdx] = 13;
+            imgData.data[pxIdx + 1] = 17;
+            imgData.data[pxIdx + 2] = 23;
+            imgData.data[pxIdx + 3] = 255;
+          } else {
+            const [r, g, b] = colorMap(1.0);
+            imgData.data[pxIdx] = r;
+            imgData.data[pxIdx + 1] = g;
+            imgData.data[pxIdx + 2] = b;
+            imgData.data[pxIdx + 3] = 255;
+          }
+        }
+      }
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = NX;
+      offscreen.height = NY;
+      offscreen.getContext('2d').putImageData(imgData, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(offscreen, marginLeft, marginTop, plotW, plotH);
+
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(marginLeft, marginTop, plotW, plotH);
+
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(hAxisLabel, marginLeft + plotW / 2, canvasH - 2);
+      ctx.textAlign = 'left';
+      ctx.fillText('0', marginLeft, canvasH - 16);
+      ctx.textAlign = 'right';
+      ctx.fillText(La % 1 === 0 ? String(La) : La.toFixed(1), marginLeft + plotW, canvasH - 16);
+      ctx.save();
+      ctx.translate(10, marginTop + plotH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.fillText(vAxisLabel, 0, 0);
+      ctx.restore();
+      ctx.textAlign = 'right';
+      ctx.fillText('0', marginLeft - 4, marginTop + plotH);
+      ctx.fillText(Lb % 1 === 0 ? String(Lb) : Lb.toFixed(1), marginLeft - 4, marginTop + 10);
+
+      // Colorbar (binary: 0 = not selected, 1 = selected)
+      const barX = marginLeft + plotW + barGap;
+      const barTop = marginTop;
+      const barH = plotH;
+      for (let iy = 0; iy < barH; iy++) {
+        const t = 1 - iy / barH;
+        if (t > 0.5) {
+          const [r, g, b] = colorMap(1.0);
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+        } else {
+          ctx.fillStyle = 'rgb(13,17,23)';
+        }
+        ctx.fillRect(barX, barTop + iy, barW, 1);
+      }
+      ctx.strokeStyle = '#30363d';
+      ctx.strokeRect(barX, barTop, barW, barH);
+
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('1', barX + barW + 3, barTop + 9);
+      ctx.fillText('0', barX + barW + 3, barTop + barH);
+
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('select', barX + barW, barTop - 2 > 0 ? barTop - 2 : barTop);
+
+    } catch (e) {
+      ctx.clearRect(0, 0, canvasW, canvasH);
+      canvas.width = 0;
+      canvas.height = 0;
+      msgEl.textContent = 'Cannot evaluate selectrule expression';
+      msgEl.style.display = '';
+    }
+  }
+
+  function debouncedRenderSelectrulePlot() {
+    if (_selectrulePlotTimer) clearTimeout(_selectrulePlotTimer);
+    _selectrulePlotTimer = setTimeout(renderSelectrulePlot, 100);
   }
 
   // ---- Diag Species validation, recommendations & size estimates ----

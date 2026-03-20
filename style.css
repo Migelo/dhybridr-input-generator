@@ -324,6 +324,32 @@ header h1 { font-size: 18px; font-weight: 600; }
   border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px;
 }
 
+/* selectrule spatial plot */
+#selectrule-plot {
+  padding: 8px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+#selectrule-canvas {
+  border-radius: 4px;
+  max-width: 100%;
+  height: auto;
+}
+#selectrule-plot-msg {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+#selectrule-controls {
+  font-size: 12px; color: var(--muted);
+}
+#selectrule-controls select {
+  font-size: 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px;
+}
+
 /* 3D slice controls */
 .plot-3d-controls {
   display: inline-flex; align-items: center; gap: 6px;

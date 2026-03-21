@@ -459,7 +459,7 @@ const PRESETS = [
       global_output: { ndump: -1, tdump: 1.0, output_folder: 'Output' },
       ext_emf: { Bx: '1.', By: '0.', Bz: '0.' },
       algorithm: { filternpass: 4, ifsmoothextfields: true },
-      species: [{ num_par: [8,8], vth: 0.1, n_constants: 2, ct: [0.01,0.04908739,0,0,0,0,0,0,0,0,0,0,0,0,0,0], vsp: ['','ct(1)*sin(ct(2)*x)',''] }],
+      species: [{ num_par: [8,8], vth: 0.1, n_constants: 2, ct: [0.01,0.04908739,0,0,0,0,0,0,0,0,0,0,0,0,0,0], vsp: ['0.','ct(1)*sin(ct(2)*x)','0.'] }],
       boundary_conditions: [{ bdtype: ['per','per','per','per'] }],
       diag_species: [{ xres: [256,32] }],
       field_diag: { dmp_bfld: [false,true,false,true] },

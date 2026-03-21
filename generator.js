@@ -98,6 +98,11 @@ function formatValue(field, val, dim) {
     while (arr.length < arrSize) arr.push(field.default?.[arr.length] ?? 0);
 
     if (field.type === 'strarr') {
+      // For fparser arrays (e.g. vsp): if any component is non-empty, fill empty ones with "0."
+      // Fortran requires all components set for the function to activate
+      if (field.fparser && arr.some(v => String(v).trim() !== '')) {
+        arr = arr.map(v => String(v).trim() === '' ? '0.' : v);
+      }
       const parts = arr.map(v => {
         let sv = String(v);
         if (field.fparser) sv = sv.replace(/\bpi\b/gi, '3.14159265358979');

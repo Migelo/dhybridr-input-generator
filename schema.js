@@ -448,4 +448,22 @@ const PRESETS = [
       restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
     }
   },
+  {
+    name: '2D Alfven Wave',
+    desc: 'Small-amplitude Alfven wave propagating along x. Tests wave dispersion and energy conservation.',
+    dim: 2,
+    values: {
+      node_conf: { node_number: [1,1] },
+      time: { dt: 0.001768, niter: -1, tend: 256, c: 100, adaptive_dt: true, cfl_factor: 0.5 },
+      grid_space: { ncells: [256,32], boxsize: [128,16], bdtype: ['per','per','per','per'] },
+      global_output: { ndump: -1, tdump: 1.0, output_folder: 'Output' },
+      ext_emf: { Bx: '1.', By: '0.', Bz: '0.' },
+      algorithm: { filternpass: 4, ifsmoothextfields: true },
+      species: [{ num_par: [8,8], vth: 0.1, n_constants: 2, ct: [0.01,0.04908739,0,0,0,0,0,0,0,0,0,0,0,0,0,0], vsp: ['','ct(1)*sin(ct(2)*x)',''] }],
+      boundary_conditions: [{ bdtype: ['per','per','per','per'] }],
+      diag_species: [{ xres: [256,32] }],
+      field_diag: { dmp_bfld: [false,true,false,true] },
+      restart: { restart_step: -1, restart_time: 7200, restart_time_step: 100 },
+    }
+  },
 ];

@@ -98,7 +98,11 @@ function formatValue(field, val, dim) {
     while (arr.length < arrSize) arr.push(field.default?.[arr.length] ?? 0);
 
     if (field.type === 'strarr') {
-      const parts = arr.map(v => `"${v}"`);
+      const parts = arr.map(v => {
+        let sv = String(v);
+        if (field.fparser) sv = sv.replace(/\bpi\b/gi, '3.14159265358979');
+        return `"${sv}"`;
+      });
       return `${field.key}=${parts.join(',')}`;
     } else if (field.type === 'bool') {
       const parts = arr.map(v => v ? '.true.' : '.false.');
@@ -121,11 +125,13 @@ function formatValue(field, val, dim) {
   if (field.type === 'bool') {
     return `${field.key}=${val ? '.true.' : '.false.'}`;
   } else if (field.type === 'str') {
-    // String fields that are function parser expressions get quoted
+    let sval = String(val);
+    // Replace pi with numeric value for Fortran fparser compatibility
+    if (field.fparser) sval = sval.replace(/\bpi\b/gi, '3.14159265358979');
     if (needsQuotes(field)) {
-      return `${field.key}="${val}"`;
+      return `${field.key}="${sval}"`;
     }
-    return `${field.key}="${val}"`;
+    return `${field.key}="${sval}"`;
   } else {
     return `${field.key}=${formatNumber(val, field.type)}`;
   }

@@ -45,6 +45,7 @@
     });
     buildPresetList();
     enforceIntegerFields();
+    initSearch();
   }
 
   // ---- Integer enforcement ----
@@ -3561,6 +3562,89 @@
     el.textContent = msg;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 2200);
+  }
+
+  // ---- Parameter search ----
+  function initSearch() {
+    const input = document.getElementById('param-search');
+    const dropdown = document.getElementById('search-dropdown');
+    if (!input || !dropdown) return;
+
+    // Build search index from schema
+    const searchIndex = [];
+    for (const [skey, sec] of Object.entries(SCHEMA)) {
+      for (const field of sec.fields) {
+        searchIndex.push({
+          sectionKey: skey,
+          fieldKey: field.key,
+          label: field.label || field.key,
+          hint: field.hint || '',
+          sectionLabel: sec.label || skey,
+        });
+      }
+    }
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) { dropdown.classList.add('hidden'); dropdown.innerHTML = ''; return; }
+
+      const results = searchIndex.filter(e =>
+        e.fieldKey.toLowerCase().includes(q) ||
+        e.label.toLowerCase().includes(q) ||
+        e.hint.toLowerCase().includes(q) ||
+        e.sectionLabel.toLowerCase().includes(q)
+      ).slice(0, 10);
+
+      if (results.length === 0) {
+        dropdown.innerHTML = '<div class="search-empty">No matches</div>';
+        dropdown.classList.remove('hidden');
+        return;
+      }
+
+      dropdown.innerHTML = results.map(r =>
+        `<div class="search-result" data-section="${r.sectionKey}" data-key="${r.fieldKey}">` +
+        `<span class="search-field">${r.label}</span>` +
+        `<span class="search-section">${r.sectionLabel}</span>` +
+        (r.hint ? `<span class="search-hint">${r.hint.length > 60 ? r.hint.slice(0, 60) + '...' : r.hint}</span>` : '') +
+        `</div>`
+      ).join('');
+      dropdown.classList.remove('hidden');
+
+      dropdown.querySelectorAll('.search-result').forEach(el => {
+        el.addEventListener('mousedown', e => {
+          e.preventDefault(); // prevent blur before click fires
+          const skey = el.dataset.section;
+          const fkey = el.dataset.key;
+          input.value = '';
+          dropdown.classList.add('hidden');
+          dropdown.innerHTML = '';
+          setActiveSection(skey);
+          // Highlight the field after a tick (DOM needs to render)
+          setTimeout(() => {
+            const fieldEl = document.querySelector(`[data-section="${skey}"][data-key="${fkey}"]`);
+            const row = fieldEl?.closest('.field-row');
+            if (row) {
+              row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              row.classList.add('search-highlight');
+              setTimeout(() => row.classList.remove('search-highlight'), 2000);
+            }
+          }, 50);
+        });
+      });
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => { dropdown.classList.add('hidden'); }, 150);
+    });
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        input.value = '';
+        dropdown.classList.add('hidden');
+        dropdown.innerHTML = '';
+        input.blur();
+      }
+    });
   }
 
   // ---- Go ----

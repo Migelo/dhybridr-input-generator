@@ -190,6 +190,9 @@
         validateDiagSpecies(key, spIdx);
       }
     }
+    if (key === 'node_conf') {
+      renderNodeOptimizer();
+    }
     if (key === 'time') {
       updateDtRecommendation();
     }
@@ -376,6 +379,23 @@
         html += `</span>`;
         html += `</div>`;
         html += `<canvas id="selectrule-canvas"></canvas><div id="selectrule-plot-msg"></div></div>`;
+      }
+      // Insert node optimizer panel after node_conf fields
+      if (skey === 'node_conf') {
+        html += `<div id="node-optimizer-panel" class="node-optimizer-panel">`;
+        html += `<div class="node-optimizer-header">Node Optimizer</div>`;
+        html += `<p class="node-optimizer-desc">Finds MPI decompositions that balance subdomain sizes across processors. `;
+        html += `Enter the desired particles per processor — the optimizer estimates total particles from ncells, num_species, and num_par, `;
+        html += `then searches for nearby processor counts with the most square (balanced) domain decomposition.</p>`;
+        html += `<div class="node-optimizer-body">`;
+        html += `<div class="node-optimizer-input-row">`;
+        html += `<label>Target particles/proc:</label>`;
+        html += `<input type="range" id="node-optimizer-slider" min="4" max="8" step="0.1" value="6">`;
+        html += `<span id="node-optimizer-target-label" class="node-opt-target-label">1,000,000</span>`;
+        html += `</div>`;
+        html += `<div id="node-optimizer-results"></div>`;
+        html += `</div>`;
+        html += `</div>`;
       }
       // Insert |B| magnitude panel and heatmap after the Magnetic Field group
       if (skey === 'ext_emf' && group.title === 'Magnetic Field') {
@@ -905,6 +925,13 @@
           debouncedRenderSelectrulePlot();
         }
 
+        // Cross-section: if ncells, num_species, or num_par changed, update node optimizer
+        if ((elSection === 'grid_space' && elKey === 'ncells') ||
+            (elSection === 'particles' && elKey === 'num_species') ||
+            (elSection === 'species' && elKey === 'num_par')) {
+          renderNodeOptimizer();
+        }
+
         // Section validations
         if (elSection === 'grid_space') validateSection('grid_space');
         if (elSection === 'time') {
@@ -1062,6 +1089,7 @@
     setActiveSection(activeSection);
     updatePreview();
     updateDtRecommendation();
+    renderNodeOptimizer();
   }
 
   function adjustDimArrays(sec, data) {
@@ -3310,6 +3338,221 @@
 
   function showPresetModal() { document.getElementById('preset-modal').classList.remove('hidden'); }
   function hidePresetModal() { document.getElementById('preset-modal').classList.add('hidden'); }
+
+  // ---- Node Optimizer ----
+  function getPermutations(arr) {
+    if (arr.length <= 1) return [arr];
+    const results = [];
+    const seen = new Set();
+    for (let i = 0; i < arr.length; i++) {
+      const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+      for (const perm of getPermutations(rest)) {
+        const key = [arr[i], ...perm].join(',');
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push([arr[i], ...perm]);
+        }
+      }
+    }
+    return results;
+  }
+
+  function bestDecompositionND(ncells, nprocs) {
+    const ndim = ncells.length;
+    if (nprocs < 1) return null;
+
+    // 1D: trivial
+    if (ndim === 1) {
+      const subAxes = [ncells[0] / nprocs];
+      return { nprocs, procAxes: [nprocs], subAxes, error: 0, normalizedError: 0 };
+    }
+
+    let best = null;
+    let bestProcSpread = Infinity;
+
+    const factorTuples = [];
+    if (ndim === 2) {
+      for (let a = 1; a <= Math.floor(Math.sqrt(nprocs)); a++) {
+        if (nprocs % a === 0) {
+          factorTuples.push([a, nprocs / a]);
+        }
+      }
+    } else {
+      // 3D
+      const cbrt = Math.round(Math.pow(nprocs, 1 / 3));
+      for (let a = 1; a <= cbrt + 1; a++) {
+        if (nprocs % a !== 0) continue;
+        const rem = nprocs / a;
+        for (let b = 1; b <= Math.floor(Math.sqrt(rem)); b++) {
+          if (rem % b === 0) {
+            factorTuples.push([a, b, rem / b]);
+          }
+        }
+      }
+    }
+
+    for (const factors of factorTuples) {
+      for (const procAxes of getPermutations(factors)) {
+        const subAxes = ncells.map((nc, i) => nc / procAxes[i]);
+        const maxSub = Math.max(...subAxes);
+        const minSub = Math.min(...subAxes);
+        const error = maxSub - minSub;
+        const normalizedError = maxSub > 0 ? error / maxSub : 0;
+        const procSpread = Math.max(...procAxes) - Math.min(...procAxes);
+
+        if (best === null ||
+            normalizedError < best.normalizedError - 1e-12 ||
+            (Math.abs(normalizedError - best.normalizedError) < 1e-12 && procSpread < bestProcSpread)) {
+          best = { nprocs, procAxes: [...procAxes], subAxes, error, normalizedError };
+          bestProcSpread = procSpread;
+        }
+      }
+    }
+    return best;
+  }
+
+  function computeNodeRecommendations(targetPPP) {
+    const ncells = (state.grid_space?.ncells || []).slice(0, currentDim).map(v => parseInt(v) || 1);
+    const numSpecies = getSpeciesCount();
+    const ndim = currentDim;
+
+    // Compute total particles per cell across all species
+    let totalPPC = 0;
+    for (let s = 0; s < numSpecies; s++) {
+      const numPar = (state.species?.[s]?.num_par || [2, 2, 2]).slice(0, ndim).map(v => parseInt(v) || 1);
+      let ppc = 1;
+      for (let i = 0; i < ndim; i++) ppc *= numPar[i];
+      totalPPC += ppc;
+    }
+
+    const totalCells = ncells.reduce((a, b) => a * b, 1);
+    const totalParticles = totalCells * totalPPC;
+    const idealNprocs = totalParticles / targetPPP;
+
+    const center = Math.max(1, Math.round(idealNprocs));
+    const start = Math.max(1, center - 8);
+    const end = center + 8;
+
+    const candidates = [];
+    for (let nprocs = start; nprocs <= end; nprocs++) {
+      const dcmp = bestDecompositionND(ncells, nprocs);
+      if (!dcmp) continue;
+      const particlesPerProc = totalParticles / nprocs;
+      const cellsPerProc = totalCells / nprocs;
+      candidates.push({
+        nprocs,
+        procAxes: dcmp.procAxes,
+        subAxes: dcmp.subAxes,
+        cellsPerProc,
+        particlesPerProc,
+        error: dcmp.error,
+        normalizedError: dcmp.normalizedError,
+        targetDelta: Math.abs(particlesPerProc - targetPPP),
+        idealDelta: Math.abs(nprocs - idealNprocs),
+      });
+    }
+
+    // Recommended: closest to target particles/proc
+    const recommended = candidates.reduce((best, c) => {
+      if (!best) return c;
+      if (c.targetDelta < best.targetDelta) return c;
+      if (c.targetDelta === best.targetDelta && c.normalizedError < best.normalizedError) return c;
+      if (c.targetDelta === best.targetDelta && c.normalizedError === best.normalizedError && c.idealDelta < best.idealDelta) return c;
+      return best;
+    }, null);
+
+    // Top 5 most square
+    const squareSorted = candidates.slice().sort((a, b) => {
+      if (a.normalizedError !== b.normalizedError) return a.normalizedError - b.normalizedError;
+      if (a.targetDelta !== b.targetDelta) return a.targetDelta - b.targetDelta;
+      return a.idealDelta - b.idealDelta;
+    }).slice(0, 5);
+
+    return { totalParticles, idealNprocs, candidates: squareSorted, recommended };
+  }
+
+  function renderNodeOptimizer() {
+    const resultsDiv = document.getElementById('node-optimizer-results');
+    if (!resultsDiv) return;
+
+    const slider = document.getElementById('node-optimizer-slider');
+    const targetLabel = document.getElementById('node-optimizer-target-label');
+    if (!slider) return;
+
+    // Bind slider event if not already bound
+    if (!slider.dataset.bound) {
+      slider.dataset.bound = '1';
+      slider.addEventListener('input', () => {
+        const val = Math.round(Math.pow(10, parseFloat(slider.value)));
+        if (targetLabel) targetLabel.textContent = val.toLocaleString();
+        renderNodeOptimizer();
+      });
+    }
+
+    const targetPPP = Math.round(Math.pow(10, parseFloat(slider.value)));
+
+    const { totalParticles, idealNprocs, candidates, recommended } = computeNodeRecommendations(targetPPP);
+
+    if (candidates.length === 0) {
+      resultsDiv.innerHTML = '<div class="node-opt-empty">Could not compute decompositions.</div>';
+      return;
+    }
+
+    const axesLabel = 'node_number';
+
+    let html = '';
+    html += `<div class="node-opt-summary">`;
+    html += `<span>Total particles: <strong>${totalParticles.toLocaleString()}</strong></span>`;
+    html += `<span>Ideal nprocs: <strong>${idealNprocs.toFixed(1)}</strong></span>`;
+    html += `</div>`;
+
+    html += `<table class="node-opt-table">`;
+    html += `<thead><tr>`;
+    html += `<th title="Total number of MPI processes">nprocs</th>`;
+    html += `<th title="Processes per dimension — set as node_number">${axesLabel}</th>`;
+    html += `<th title="Grid cells per process (total). Hover rows for per-dimension breakdown.">cells/proc</th>`;
+    html += `<th title="Estimated particles per process">particles/proc</th>`;
+    html += `<th title="Squareness error (0 = perfectly balanced subdomains). Lower is better.">error</th>`;
+    html += `<th></th>`;
+    html += `</tr></thead><tbody>`;
+
+    for (const c of candidates) {
+      const isRec = recommended && c.nprocs === recommended.nprocs &&
+                    c.procAxes.join(',') === recommended.procAxes.join(',');
+      const rowClass = isRec ? 'node-opt-recommended' : '';
+      const axes = c.procAxes.join(' x ');
+      const cellsPerDim = c.subAxes.map(v => Math.ceil(v)).join(' x ');
+      html += `<tr class="${rowClass}">`;
+      html += `<td>${c.nprocs}</td>`;
+      html += `<td>${axes}</td>`;
+      html += `<td title="${cellsPerDim} per dim">${Math.round(c.cellsPerProc).toLocaleString()}</td>`;
+      html += `<td>${Math.round(c.particlesPerProc).toLocaleString()}</td>`;
+      html += `<td>${c.normalizedError.toFixed(3)}</td>`;
+      html += `<td><button type="button" class="node-opt-apply" data-proc-axes="${c.procAxes.join(',')}">${isRec ? 'Apply' : 'Apply'}</button></td>`;
+      html += `</tr>`;
+    }
+    html += `</tbody></table>`;
+
+    resultsDiv.innerHTML = html;
+
+    // Bind apply buttons
+    resultsDiv.querySelectorAll('.node-opt-apply').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const axes = btn.dataset.procAxes.split(',').map(Number);
+        // Update state
+        const nodeNumber = state.node_conf.node_number;
+        for (let i = 0; i < currentDim; i++) {
+          if (i < axes.length) nodeNumber[i] = axes[i];
+        }
+        // Update UI inputs
+        for (let i = 0; i < currentDim; i++) {
+          const input = document.querySelector(`[data-section="node_conf"][data-key="node_number"][data-index="${i}"]`);
+          if (input) input.value = axes[i];
+        }
+        updatePreview();
+      });
+    });
+  }
 
   // ---- Toast ----
   function toast(msg) {

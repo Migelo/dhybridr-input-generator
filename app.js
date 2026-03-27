@@ -5,10 +5,12 @@
   let state = {};       // { sectionKey: { field: value } } or { sectionKey: [ {field:value}, ... ] } for perSpecies
   let activeSection = 'node_conf';
   let activeSpeciesIdx = {};  // { sectionKey: speciesIndex }
+  let lastMeaningfulBoxsize = [0, 0, 0]; // tracks last non-zero boxsize for injector snapping
 
   // ---- Init ----
   function init() {
     initState();
+    lastMeaningfulBoxsize = (state.grid_space?.boxsize || []).map(Number);
     buildSidebar();
     buildSections();
     setActiveSection('node_conf');
@@ -761,7 +763,6 @@
       const onChange = () => {
         const field = sec.fields.find(f => f.key === elKey);
         if (!field && elKey !== '_enabled') return;
-        const oldBoxsize = (state.grid_space?.boxsize || []).map(Number);
         const spIdx = el.dataset.species !== undefined ? parseInt(el.dataset.species) : undefined;
         const arrIdx = el.dataset.index !== undefined ? parseInt(el.dataset.index) : undefined;
 
@@ -901,7 +902,12 @@
 
         // Cross-section: if boxsize changed, move injectors that sit at the old edge
         if (elSection === 'grid_space' && elKey === 'boxsize') {
-          syncInjectorsToBoxsize(oldBoxsize);
+          syncInjectorsToBoxsize(lastMeaningfulBoxsize);
+          // Update lastMeaningfulBoxsize: only overwrite components that are > 0
+          const newBs = (state.grid_space?.boxsize || []).map(Number);
+          for (let i = 0; i < newBs.length; i++) {
+            if (newBs[i] > 0) lastMeaningfulBoxsize[i] = newBs[i];
+          }
           debouncedRenderBFieldPlot();
           debouncedRenderEFieldPlot();
           debouncedRenderNspPlot();
@@ -1145,7 +1151,7 @@
           const oldMax = oldBoxsize[axIdx];
           const pp = Number(inj.planepos) || 0;
           const newPlaneMax = newBoxsize[axIdx] || 0;
-          if (oldMax > eps && newPlaneMax > eps && Math.abs(pp - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
+          if (oldMax > eps && newPlaneMax > 0 && Math.abs(pp - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
             inj.planepos = newPlaneMax;
             changed = true;
           }
@@ -1165,7 +1171,7 @@
             const endIdx = nInPlane + i;
             if (endIdx < bd.length) {
               const endVal = Number(bd[endIdx]) || 0;
-              if (oldMax > eps && newMax > eps && Math.abs(endVal - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
+              if (newMax > eps && Math.abs(endVal - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
                 bd[endIdx] = newMax;
                 changed = true;
               }

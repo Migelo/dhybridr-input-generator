@@ -1139,13 +1139,14 @@
         if (!inj) continue;
         const plane = (inj.plane || 'yz').toLowerCase();
 
-        // Sync planepos if it was at the old boxsize edge
+        // Sync planepos if it was at the old boxsize edge (skip if old edge was 0 — transient from empty input)
         const axIdx = planeAxisIdx[plane];
         if (axIdx !== undefined && axIdx < oldBoxsize.length) {
           const oldMax = oldBoxsize[axIdx];
           const pp = Number(inj.planepos) || 0;
-          if (Math.abs(pp - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
-            inj.planepos = newBoxsize[axIdx] || 0;
+          const newPlaneMax = newBoxsize[axIdx] || 0;
+          if (oldMax > eps && newPlaneMax > eps && Math.abs(pp - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
+            inj.planepos = newPlaneMax;
             changed = true;
           }
         }
@@ -1164,7 +1165,7 @@
             const endIdx = nInPlane + i;
             if (endIdx < bd.length) {
               const endVal = Number(bd[endIdx]) || 0;
-              if (Math.abs(endVal - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
+              if (oldMax > eps && newMax > eps && Math.abs(endVal - oldMax) < eps * Math.max(1, Math.abs(oldMax))) {
                 bd[endIdx] = newMax;
                 changed = true;
               }

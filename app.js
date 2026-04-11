@@ -212,6 +212,9 @@
     if (key === 'raw_diag') {
       debouncedRenderSelectrulePlot();
     }
+    if (key === 'field_diag') {
+      buildFieldDiagSizePanel();
+    }
     validateSection(key);
   }
 
@@ -929,6 +932,11 @@
           validateDiagSpecies(elSection, spIdx);
         }
 
+        // Field diag size estimate on change
+        if (elSection === 'field_diag') {
+          buildFieldDiagSizePanel();
+        }
+
         updatePreview();
 
         // Cross-section: if ncells changed, cap xres to ncells for all species
@@ -936,13 +944,16 @@
           autoCapXres();
         }
 
-        // Cross-section: if ncells, or any time/dump control changed, update diag_species estimates
+        // Cross-section: if ncells or any time/dump control changed, update diag estimates
         if ((elSection === 'grid_space' && elKey === 'ncells') ||
             (elSection === 'time' && (elKey === 'niter' || elKey === 'tend' || elKey === 'dt')) ||
             (elSection === 'global_output' && (elKey === 'ndump' || elKey === 'tdump'))) {
-          const diagSpIdx = activeSpeciesIdx['diag_species'] || 0;
           if (activeSection === 'diag_species') {
+            const diagSpIdx = activeSpeciesIdx['diag_species'] || 0;
             validateDiagSpecies('diag_species', diagSpIdx);
+          }
+          if (activeSection === 'field_diag') {
+            buildFieldDiagSizePanel();
           }
         }
 
@@ -3292,13 +3303,8 @@
     buildDiagSizePanel(container, data, spIdx);
   }
 
-  function buildDiagSizePanel(container, data, spIdx) {
-    const ncells = state.grid_space?.ncells || [];
-    const xres = data.xres || [];
-    const pres = data.pres || [512, 512, 512];
-
-    // Work out how many dumps the simulation will produce, supporting both
-    // iteration-based (niter + ndump) and time-based (tend + tdump) modes.
+  function computeDumpSchedule() {
+    // Supports both iteration-based (niter + ndump) and time-based (tend + tdump) modes.
     const dt = Number(state.time?.dt) || 0;
     const niter = Number(state.time?.niter) || 0;
     const tend = Number(state.time?.tend) || 0;
@@ -3312,6 +3318,14 @@
       : 0;
     const niterLabel = niter > 0 ? `niter=${niter}` : (tend > 0 ? `tend=${tend}` : '');
     const ndumpLabel = ndump > 0 ? `ndump=${ndump}` : (tdump > 0 ? `tdump=${tdump}` : '');
+    return { numDumps, niterLabel, ndumpLabel };
+  }
+
+  function buildDiagSizePanel(container, data, spIdx) {
+    const ncells = state.grid_space?.ncells || [];
+    const xres = data.xres || [];
+    const pres = data.pres || [512, 512, 512];
+    const { numDumps, niterLabel, ndumpLabel } = computeDumpSchedule();
 
     // Parse selected phase spaces
     const psStr = data.phasespaces || '';
@@ -3379,6 +3393,76 @@
         : `${fieldFlags.length} fluid moments`;
     html += `<div class="size-total">`;
     html += `<span>Total per dump (${itemLabel})</span>`;
+    html += `<span class="size-value">${formatBytes(totalBytes)}</span>`;
+    html += `</div>`;
+    if (numDumps > 0) {
+      const simTotal = totalBytes * numDumps;
+      const labelParts = [niterLabel, ndumpLabel].filter(s => s).join(', ');
+      html += `<div class="size-total size-sim">`;
+      html += `<span>Total per simulation (${numDumps} dumps${labelParts ? ', ' + labelParts : ''})</span>`;
+      html += `<span class="size-value">${formatBytes(simTotal)}</span>`;
+      html += `</div>`;
+    }
+    panel.innerHTML = html;
+  }
+
+  function buildFieldDiagSizePanel() {
+    const container = document.querySelector('.section[data-section="field_diag"]');
+    if (!container) return;
+    const data = state.field_diag || {};
+    const ncells = state.grid_space?.ncells || [];
+    const { numDumps, niterLabel, ndumpLabel } = computeDumpSchedule();
+
+    // Field-diag flags: each "intensity" entry is 1 scalar field, each "vector"
+    // entry is 3 components — matches the inner loops in dHybridR flddiag.f90.
+    const efld = Array.isArray(data.dmp_efld) ? data.dmp_efld : [false, false, false, false];
+    const bfld = Array.isArray(data.dmp_bfld) ? data.dmp_bfld : [false, false, false, false];
+    const jfld = Array.isArray(data.dmp_jfld) ? data.dmp_jfld : [false, false];
+    const flags = [
+      { on: !!efld[0], name: 'Self |E|',   count: 1 },
+      { on: !!efld[1], name: 'Self E\u20d7',  count: 3 },
+      { on: !!efld[2], name: 'Total |E|',  count: 1 },
+      { on: !!efld[3], name: 'Total E\u20d7', count: 3 },
+      { on: !!bfld[0], name: 'Self |B|',   count: 1 },
+      { on: !!bfld[1], name: 'Self B\u20d7',  count: 3 },
+      { on: !!bfld[2], name: 'Total |B|',  count: 1 },
+      { on: !!bfld[3], name: 'Total B\u20d7', count: 3 },
+      { on: !!jfld[0], name: '|J|',        count: 1 },
+      { on: !!jfld[1], name: 'J\u20d7',    count: 3 },
+    ].filter(f => f.on);
+
+    let panel = container.querySelector('.diag-size-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'diag-size-panel';
+      container.appendChild(panel);
+    }
+
+    if (flags.length === 0) {
+      panel.innerHTML = `<div class="size-panel-header"><span class="size-icon">\ud83d\udcca</span> Estimated Output Size per Dump</div>`
+        + `<div class="size-empty">No field components selected</div>`;
+      return;
+    }
+
+    const BYTES_PER_CELL = 4;
+    const gridDims = [];
+    for (let i = 0; i < currentDim; i++) gridDims.push(Number(ncells[i]) || 0);
+    const gridCells = gridDims.reduce((a, b) => a * b, 1);
+    const gridDimsStr = gridDims.join(' \u00d7 ');
+
+    let totalBytes = 0;
+    let html = `<div class="size-panel-header"><span class="size-icon">\ud83d\udcca</span> Estimated Output Size per Dump</div>`;
+    for (const f of flags) {
+      const bytes = f.count * gridCells * BYTES_PER_CELL;
+      totalBytes += bytes;
+      const label = f.count > 1 ? `${f.name} (\u00d7${f.count})` : f.name;
+      html += `<div class="size-row">`;
+      html += `<span><span class="size-name">${label}</span><span class="size-dims">${gridDimsStr}</span></span>`;
+      html += `<span class="size-value">${formatBytes(bytes)}</span>`;
+      html += `</div>`;
+    }
+    html += `<div class="size-total">`;
+    html += `<span>Total per dump (${flags.length} field component${flags.length === 1 ? '' : 's'})</span>`;
     html += `<span class="size-value">${formatBytes(totalBytes)}</span>`;
     html += `</div>`;
     if (numDumps > 0) {

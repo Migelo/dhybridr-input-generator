@@ -46,6 +46,7 @@
     document.getElementById('preset-modal').addEventListener('click', e => {
       if (e.target === e.currentTarget) hidePresetModal();
     });
+    document.getElementById('btn-save-preset').addEventListener('click', onSaveUserPreset);
     buildPresetList();
     enforceIntegerFields();
     initSearch();
@@ -3719,18 +3720,196 @@
   }
 
   // ---- Presets ----
+  const USER_PRESETS_KEY = 'dhybridr.userPresets';
+
+  function loadUserPresets() {
+    try {
+      const raw = localStorage.getItem(USER_PRESETS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.warn('Failed to load user presets:', err);
+      return [];
+    }
+  }
+
+  function saveUserPresets(presets) {
+    try {
+      localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(presets));
+      return true;
+    } catch (err) {
+      toast('Could not save preset: ' + (err && err.message ? err.message : 'storage unavailable'));
+      return false;
+    }
+  }
+
+  function makePresetButton(preset) {
+    const btn = document.createElement('button');
+    btn.className = 'preset-item';
+    const desc = preset.desc ? `<span class="preset-desc">${escapeHtml(preset.desc)}</span>` : '';
+    btn.innerHTML = `<strong>${escapeHtml(preset.name)}</strong>${desc}`;
+    btn.addEventListener('click', () => {
+      applyPreset(preset);
+      hidePresetModal();
+    });
+    return btn;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
   function buildPresetList() {
     const list = document.getElementById('preset-list');
     list.innerHTML = '';
+
+    const builtinHeading = document.createElement('div');
+    builtinHeading.className = 'preset-group-heading';
+    builtinHeading.textContent = 'Built-in';
+    list.appendChild(builtinHeading);
+
     for (const preset of PRESETS) {
-      const btn = document.createElement('button');
-      btn.innerHTML = `<strong>${preset.name}</strong><span class="preset-desc">${preset.desc}</span>`;
-      btn.addEventListener('click', () => {
-        applyPreset(preset);
-        hidePresetModal();
-      });
-      list.appendChild(btn);
+      list.appendChild(makePresetButton(preset));
     }
+
+    const userPresets = loadUserPresets();
+    if (userPresets.length === 0) return;
+
+    const userHeading = document.createElement('div');
+    userHeading.className = 'preset-group-heading';
+    userHeading.textContent = 'My Presets';
+    list.appendChild(userHeading);
+
+    for (const preset of userPresets) {
+      const row = document.createElement('div');
+      row.className = 'preset-row';
+      row.appendChild(makePresetButton(preset));
+      const del = document.createElement('button');
+      del.className = 'preset-delete';
+      del.type = 'button';
+      del.title = 'Delete preset';
+      del.setAttribute('aria-label', `Delete preset ${preset.name}`);
+      del.textContent = '×';
+      del.addEventListener('click', e => {
+        e.stopPropagation();
+        if (!confirm(`Delete preset "${preset.name}"?`)) return;
+        const current = loadUserPresets().filter(p => p.name !== preset.name);
+        if (saveUserPresets(current)) {
+          buildPresetList();
+          toast(`Deleted preset: ${preset.name}`);
+        }
+      });
+      row.appendChild(del);
+      list.appendChild(row);
+    }
+  }
+
+  function onSaveUserPreset() {
+    const modal = document.getElementById('save-preset-modal');
+    const form = document.getElementById('save-preset-form');
+    const nameInput = document.getElementById('save-preset-name');
+    const descInput = document.getElementById('save-preset-desc');
+    const note = document.getElementById('save-preset-note');
+    const confirmBtn = document.getElementById('save-preset-confirm');
+    const cancelBtn = document.getElementById('save-preset-cancel');
+
+    nameInput.value = '';
+    descInput.value = '';
+    note.textContent = '';
+    note.className = 'form-note';
+    nameInput.classList.remove('invalid');
+
+    const updateValidation = () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        note.textContent = '';
+        note.className = 'form-note';
+        nameInput.classList.remove('invalid');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Save';
+        return;
+      }
+      if (PRESETS.some(p => p.name === name)) {
+        note.textContent = 'Name is reserved by a built-in preset.';
+        note.className = 'form-note error';
+        nameInput.classList.add('invalid');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Save';
+        return;
+      }
+      const existing = loadUserPresets();
+      const prior = existing.find(p => p.name === name);
+      if (prior) {
+        note.textContent = 'Will overwrite existing preset.';
+        note.className = 'form-note warn';
+        nameInput.classList.remove('invalid');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Overwrite';
+        if (!descInput.value && prior.desc) descInput.value = prior.desc;
+        return;
+      }
+      note.textContent = '';
+      note.className = 'form-note';
+      nameInput.classList.remove('invalid');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Save';
+    };
+
+    const close = () => {
+      modal.classList.add('hidden');
+      nameInput.removeEventListener('input', updateValidation);
+      form.removeEventListener('submit', onSubmit);
+      cancelBtn.removeEventListener('click', close);
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+    };
+
+    const onSubmit = (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim();
+      if (!name || PRESETS.some(p => p.name === name)) return;
+
+      let snapshot;
+      try {
+        snapshot = JSON.parse(JSON.stringify(state));
+      } catch (err) {
+        note.textContent = 'Could not snapshot state: ' + err.message;
+        note.className = 'form-note error';
+        return;
+      }
+
+      const existing = loadUserPresets();
+      const desc = descInput.value.trim();
+      const preset = { name, desc, dim: currentDim, values: snapshot };
+      const next = existing.filter(p => p.name !== name);
+      next.push(preset);
+      if (!saveUserPresets(next)) {
+        note.textContent = 'Could not save to localStorage.';
+        note.className = 'form-note error';
+        return;
+      }
+
+      close();
+      buildPresetList();
+      toast(`Saved preset: ${name}`);
+    };
+
+    const onBackdrop = (e) => { if (e.target === modal) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Save';
+    nameInput.addEventListener('input', updateValidation);
+    form.addEventListener('submit', onSubmit);
+    cancelBtn.addEventListener('click', close);
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+
+    modal.classList.remove('hidden');
+    setTimeout(() => nameInput.focus(), 0);
   }
 
   function applyPreset(preset) {

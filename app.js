@@ -936,10 +936,10 @@
           autoCapXres();
         }
 
-        // Cross-section: if ncells, niter, or ndump changed, update diag_species estimates
+        // Cross-section: if ncells, or any time/dump control changed, update diag_species estimates
         if ((elSection === 'grid_space' && elKey === 'ncells') ||
-            (elSection === 'time' && elKey === 'niter') ||
-            (elSection === 'global_output' && elKey === 'ndump')) {
+            (elSection === 'time' && (elKey === 'niter' || elKey === 'tend' || elKey === 'dt')) ||
+            (elSection === 'global_output' && (elKey === 'ndump' || elKey === 'tdump'))) {
           const diagSpIdx = activeSpeciesIdx['diag_species'] || 0;
           if (activeSection === 'diag_species') {
             validateDiagSpecies('diag_species', diagSpIdx);
@@ -3296,9 +3296,22 @@
     const ncells = state.grid_space?.ncells || [];
     const xres = data.xres || [];
     const pres = data.pres || [512, 512, 512];
-    const niter = Number(state.time?.niter) || 2000;
-    const ndump = Number(state.global_output?.ndump) || 100;
-    const numDumps = ndump > 0 ? Math.floor(niter / ndump) : 0;
+
+    // Work out how many dumps the simulation will produce, supporting both
+    // iteration-based (niter + ndump) and time-based (tend + tdump) modes.
+    const dt = Number(state.time?.dt) || 0;
+    const niter = Number(state.time?.niter) || 0;
+    const tend = Number(state.time?.tend) || 0;
+    const ndump = Number(state.global_output?.ndump) || 0;
+    const tdump = Number(state.global_output?.tdump) || 0;
+
+    const simTime = niter > 0 ? niter * dt : tend;
+    const dumpInterval = ndump > 0 ? ndump * dt : tdump;
+    const numDumps = (simTime > 0 && dumpInterval > 0)
+      ? Math.floor(simTime / dumpInterval)
+      : 0;
+    const niterLabel = niter > 0 ? `niter=${niter}` : (tend > 0 ? `tend=${tend}` : '');
+    const ndumpLabel = ndump > 0 ? `ndump=${ndump}` : (tdump > 0 ? `tdump=${tdump}` : '');
 
     // Parse selected phase spaces
     const psStr = data.phasespaces || '';
@@ -3370,8 +3383,9 @@
     html += `</div>`;
     if (numDumps > 0) {
       const simTotal = totalBytes * numDumps;
+      const labelParts = [niterLabel, ndumpLabel].filter(s => s).join(', ');
       html += `<div class="size-total size-sim">`;
-      html += `<span>Total per simulation (${numDumps} dumps \u00d7 niter=${niter}, ndump=${ndump})</span>`;
+      html += `<span>Total per simulation (${numDumps} dumps${labelParts ? ', ' + labelParts : ''})</span>`;
       html += `<span class="size-value">${formatBytes(simTotal)}</span>`;
       html += `</div>`;
     }

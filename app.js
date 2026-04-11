@@ -13,6 +13,7 @@
     lastMeaningfulBoxsize = (state.grid_space?.boxsize || []).map(Number);
     buildSidebar();
     buildSections();
+    loadStateToUI();
     setActiveSection('node_conf');
     updatePreview();
 

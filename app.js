@@ -321,18 +321,25 @@
   }
 
   function buildSectionHTML(skey, sec) {
-    let html = `<h2>${sec.label} <span class="tag ${sec.required ? '' : 'optional'}">${sec.required ? 'Required' : 'Optional'}</span></h2>`;
+    let html = `<h2>${sec.label} <span class="tag ${sec.required ? '' : 'optional'}">${sec.required ? 'Required' : 'Optional'}</span>`;
+    if (sec.enabled === false) {
+      html += ` <span class="tag disabled-tag">Disabled</span>`;
+    }
+    html += `</h2>`;
     html += `<p class="section-desc">${sec.desc}</p>`;
 
-    // Optional toggle
+    // Optional toggle — rendered as a prominent banner so it isn't mistaken for a regular field
     if (sec.enabled === false) {
-      html += `<div class="field-row" style="border-bottom:1px solid var(--border);margin-bottom:12px;padding-bottom:12px">`;
-      html += `<div class="field-label"><span class="name">Enable section</span></div>`;
-      html += `<div class="field-input"><div class="checkbox-row">`;
+      html += `<div class="enable-toggle-row">`;
+      html += `<label class="enable-toggle-label">`;
       html += `<input type="checkbox" data-key="_enabled" data-section="${skey}">`;
-      html += `</div></div></div>`;
+      html += `<span>Enable section</span>`;
+      html += `</label>`;
+      html += `<span class="enable-toggle-hint">When unchecked, this section is omitted from the generated input file.</span>`;
+      html += `</div>`;
     }
 
+    html += `<div class="section-body" data-section="${skey}">`;
     html += `<div class="validation-msg" data-section="${skey}"></div>`;
     if (sec.perSpecies) {
       html += `<div class="species-tabs" data-section="${skey}"></div>`;
@@ -345,7 +352,27 @@
     } else {
       html += buildFieldsHTML(skey, sec);
     }
+    html += `</div>`;
     return html;
+  }
+
+  function isSectionEnabled(skey) {
+    const sec = SCHEMA[skey];
+    if (!sec || sec.enabled !== false) return true;
+    if (sec.multiPerSpecies) {
+      return !!state[skey]?.[0]?.[0]?._enabled;
+    } else if (sec.perSpecies) {
+      return !!state[skey]?.[0]?._enabled;
+    }
+    return !!state[skey]?._enabled;
+  }
+
+  function applyEnabledState(skey) {
+    const sec = SCHEMA[skey];
+    if (!sec || sec.enabled !== false) return;
+    const root = document.querySelector(`.section[data-section="${skey}"]`);
+    if (!root) return;
+    root.classList.toggle('section-disabled', !isSectionEnabled(skey));
   }
 
   function buildFieldsHTML(skey, sec, speciesIdx) {
@@ -911,6 +938,7 @@
           } else {
             target._enabled = el.checked;
           }
+          applyEnabledState(elSection);
           updatePreview();
           return;
         }
@@ -1160,6 +1188,7 @@
     // Enable toggle
     const enableEl = document.querySelector(`input[data-section="${skey}"][data-key="_enabled"]`);
     if (enableEl) enableEl.checked = !!data._enabled;
+    applyEnabledState(skey);
 
     for (const field of sec.fields) {
       const val = data[field.key];
@@ -4792,7 +4821,7 @@
     // Compute total particles per cell across all species
     let totalPPC = 0;
     for (let s = 0; s < numSpecies; s++) {
-      const numPar = (state.species?.[s]?.num_par || [2, 2, 2]).slice(0, ndim).map(v => parseInt(v) || 1);
+      const numPar = (state.species?.[s]?.num_par || [4, 4, 4]).slice(0, ndim).map(v => parseInt(v) || 1);
       let ppc = 1;
       for (let i = 0; i < ndim; i++) ppc *= numPar[i];
       totalPPC += ppc;

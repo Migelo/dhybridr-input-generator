@@ -124,7 +124,34 @@ header h1 { font-size: 18px; font-weight: 600; }
   background: var(--accent-dim); color: var(--accent); font-weight: 600;
 }
 .section h2 .tag.optional { background: #3d2e0033; color: #d29922; }
+.section h2 .tag.disabled-tag { display: none; background: #5c1f1f55; color: var(--danger); }
+.section-disabled h2 .tag.disabled-tag { display: inline; }
 .section-desc { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+
+/* Section enable toggle (rendered for sections with enabled:false) */
+.enable-toggle-row {
+  margin-bottom: 16px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; display: flex; flex-direction: column; gap: 4px;
+}
+.enable-toggle-label {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer;
+}
+.enable-toggle-label input[type=checkbox] {
+  width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
+}
+.enable-toggle-hint {
+  font-size: 11px; color: var(--muted); margin-left: 26px;
+}
+.section-disabled .enable-toggle-row {
+  background: rgba(248, 81, 73, 0.06);
+  border-color: rgba(248, 81, 73, 0.45);
+}
+.section-disabled .enable-toggle-label { color: var(--danger); }
+.section-disabled .section-body {
+  opacity: 0.4; pointer-events: none; user-select: none;
+}
 
 /* Species tabs */
 .species-tabs {

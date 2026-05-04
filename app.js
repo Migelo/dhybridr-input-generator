@@ -192,6 +192,7 @@
     if (SCHEMA[key]?.perSpecies) {
       rebuildSpeciesTabs(key);
       if (SCHEMA[key]?.multiPerSpecies) {
+        rebuildSpeciesEnableToggle(key);
         rebuildInjectorTabs(key);
       }
       if (key === 'diag_species') {
@@ -329,7 +330,8 @@
     html += `<p class="section-desc">${sec.desc}</p>`;
 
     // Optional toggle — rendered as a prominent banner so it isn't mistaken for a regular field
-    if (sec.enabled === false) {
+    // For multiPerSpecies sections, the toggle is rendered per-species inside the section body
+    if (sec.enabled === false && !sec.multiPerSpecies) {
       html += `<div class="enable-toggle-row">`;
       html += `<label class="enable-toggle-label">`;
       html += `<input type="checkbox" data-key="_enabled" data-section="${skey}">`;
@@ -344,6 +346,7 @@
     if (sec.perSpecies) {
       html += `<div class="species-tabs" data-section="${skey}"></div>`;
       if (sec.multiPerSpecies) {
+        html += `<div class="species-enable-toggle" data-section="${skey}"></div>`;
         html += `<div class="injector-tabs" data-section="${skey}"></div>`;
       }
       html += `<div class="species-content" data-section="${skey}">`;
@@ -360,7 +363,7 @@
     const sec = SCHEMA[skey];
     if (!sec || sec.enabled !== false) return true;
     if (sec.multiPerSpecies) {
-      return !!state[skey]?.[0]?.[0]?._enabled;
+      return (state[skey] || []).some(spArr => Array.isArray(spArr) && spArr.some(inj => inj._enabled));
     } else if (sec.perSpecies) {
       return !!state[skey]?.[0]?._enabled;
     }
@@ -372,7 +375,18 @@
     if (!sec || sec.enabled !== false) return;
     const root = document.querySelector(`.section[data-section="${skey}"]`);
     if (!root) return;
-    root.classList.toggle('section-disabled', !isSectionEnabled(skey));
+    if (sec.multiPerSpecies) {
+      // Show "Disabled" header tag only if no species has any enabled injectors
+      const anyEnabled = isSectionEnabled(skey);
+      root.classList.toggle('section-all-species-disabled', !anyEnabled);
+      // Grey out species content and injector tabs for the currently active species
+      const spIdx = activeSpeciesIdx[skey] || 0;
+      const spEnabled = !!state[skey]?.[spIdx]?.[0]?._enabled;
+      root.querySelector(`.species-content[data-section="${skey}"]`)?.classList.toggle('species-content-disabled', !spEnabled);
+      root.querySelector(`.injector-tabs[data-section="${skey}"]`)?.classList.toggle('species-content-disabled', !spEnabled);
+    } else {
+      root.classList.toggle('section-disabled', !isSectionEnabled(skey));
+    }
   }
 
   function buildFieldsHTML(skey, sec, speciesIdx) {
@@ -881,6 +895,65 @@
     validateInjector(skey, spIdx);
   }
 
+  function rebuildSpeciesEnableToggle(skey) {
+    const sec = SCHEMA[skey];
+    if (!sec || !sec.multiPerSpecies || sec.enabled !== false) return;
+    const container = document.querySelector(`.species-enable-toggle[data-section="${skey}"]`);
+    if (!container) return;
+    const spIdx = activeSpeciesIdx[skey] || 0;
+    const isEnabled = !!state[skey]?.[spIdx]?.[0]?._enabled;
+
+    container.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'enable-toggle-row' + (isEnabled ? '' : ' enable-toggle-row-off');
+
+    const label = document.createElement('label');
+    label.className = 'enable-toggle-label';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isEnabled;
+    cb.dataset.key = '_enabled';
+    cb.dataset.section = skey;
+    cb.dataset.species = String(spIdx);
+
+    cb.addEventListener('change', () => {
+      const boxsize = (state.grid_space?.boxsize || []).map(Number);
+      const spArr = state[skey]?.[spIdx];
+      if (Array.isArray(spArr)) {
+        for (const inj of spArr) {
+          inj._enabled = cb.checked;
+          if (cb.checked && skey === 'plasma_injector') {
+            inj.plane = inj.plane || 'yz';
+            inj.planepos = boxsize[0] || 0;
+            const nInPlane = currentDim - 1;
+            const bd = new Array(nInPlane * 2).fill(0);
+            if (nInPlane >= 1) bd[nInPlane] = boxsize[1] || 0;
+            if (nInPlane >= 2) bd[nInPlane + 1] = boxsize[2] || 0;
+            inj.boundary = bd;
+          }
+        }
+      }
+      rebuildSpeciesEnableToggle(skey);
+      if (activeSection === skey) rebuildInjectorContent(skey);
+      updatePreview();
+    });
+
+    const span = document.createElement('span');
+    span.textContent = 'Enable injector for this species';
+    label.appendChild(cb);
+    label.appendChild(span);
+    row.appendChild(label);
+
+    const hint = document.createElement('span');
+    hint.className = 'enable-toggle-hint';
+    hint.textContent = "When unchecked, this species' injectors are omitted from the generated input file.";
+    row.appendChild(hint);
+
+    container.appendChild(row);
+    applyEnabledState(skey);
+  }
+
   // ---- Bind inputs ----
   function bindSectionInputs(container, skey, sec, speciesIdx) {
     container.querySelectorAll('input, select, textarea').forEach(el => {
@@ -908,30 +981,30 @@
 
         if (elKey === '_enabled') {
           if (sec.multiPerSpecies) {
-            // Set _enabled on ALL injectors for ALL species
+            // Set _enabled on all injectors for the toggled species only
             const boxsize = (state.grid_space?.boxsize || []).map(Number);
-            for (const spArr of state[elSection]) {
-              if (Array.isArray(spArr)) {
-                for (const inj of spArr) {
-                  inj._enabled = el.checked;
-                  if (el.checked && elSection === 'plasma_injector') {
-                    // Default: yz plane at right x edge, boundary spans full box
-                    inj.plane = inj.plane || 'yz';
-                    inj.planepos = boxsize[0] || 0;
-                    const nInPlane = currentDim - 1;
-                    const bd = new Array(nInPlane * 2).fill(0);
-                    // ends are at indices [nInPlane .. 2*nInPlane-1]
-                    if (nInPlane >= 1) bd[nInPlane] = boxsize[1] || 0;     // end_y
-                    if (nInPlane >= 2) bd[nInPlane + 1] = boxsize[2] || 0; // end_z
-                    inj.boundary = bd;
-                  }
+            const targetSpIdx = spIdx !== undefined ? spIdx : activeSpeciesIdx[elSection] || 0;
+            const spArr = state[elSection]?.[targetSpIdx];
+            if (Array.isArray(spArr)) {
+              for (const inj of spArr) {
+                inj._enabled = el.checked;
+                if (el.checked && elSection === 'plasma_injector') {
+                  // Default: yz plane at right x edge, boundary spans full box
+                  inj.plane = inj.plane || 'yz';
+                  inj.planepos = boxsize[0] || 0;
+                  const nInPlane = currentDim - 1;
+                  const bd = new Array(nInPlane * 2).fill(0);
+                  // ends are at indices [nInPlane .. 2*nInPlane-1]
+                  if (nInPlane >= 1) bd[nInPlane] = boxsize[1] || 0;     // end_y
+                  if (nInPlane >= 2) bd[nInPlane + 1] = boxsize[2] || 0; // end_z
+                  inj.boundary = bd;
                 }
               }
             }
-            // Refresh UI if viewing injector section
-            if (activeSection === 'plasma_injector') {
-              const spIdx2 = activeSpeciesIdx['plasma_injector'] || 0;
-              rebuildInjectorContent('plasma_injector', spIdx2);
+            // Refresh UI
+            rebuildSpeciesEnableToggle(elSection);
+            if (activeSection === elSection) {
+              rebuildInjectorContent(elSection);
             }
           } else if (sec.perSpecies && spIdx !== undefined) {
             target._enabled = el.checked;
@@ -1173,6 +1246,7 @@
       const injIdx = activeInjectorIdx[spIdx] || 0;
       const data = state[skey]?.[spIdx]?.[injIdx] || {};
       loadDataToInputs(skey, data, spIdx);
+      rebuildSpeciesEnableToggle(skey);
     } else if (sec.perSpecies) {
       const idx = activeSpeciesIdx[skey] || 0;
       const data = state[skey]?.[idx] || {};

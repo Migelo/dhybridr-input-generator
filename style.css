@@ -153,6 +153,19 @@ header h1 { font-size: 18px; font-weight: 600; }
   opacity: 0.4; pointer-events: none; user-select: none;
 }
 
+/* Per-species enable toggle (multi-per-species sections: e.g. plasma_injector) */
+.section-all-species-disabled h2 .tag.disabled-tag { display: inline; }
+.species-enable-toggle { margin-bottom: 8px; }
+.species-enable-toggle .enable-toggle-row { margin-bottom: 0; }
+.enable-toggle-row-off {
+  background: rgba(248, 81, 73, 0.06);
+  border-color: rgba(248, 81, 73, 0.45);
+}
+.enable-toggle-row-off .enable-toggle-label { color: var(--danger); }
+.species-content-disabled {
+  opacity: 0.4; pointer-events: none; user-select: none;
+}
+
 /* Species tabs */
 .species-tabs {
   display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap;
